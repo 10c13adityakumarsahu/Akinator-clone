@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Akinator Game</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .question { font-size: 20px; margin-bottom: 20px; }
+    .answers button { margin: 5px; padding: 10px 20px; font-size: 16px; }
+    .result { font-size: 22px; color: green; margin-top: 20px; }
+    .progress { margin-top: 15px; }
+  </style>
+</head>
+<body>
+
+<h1>Akinator Game</h1>
+
+<div class="question" id="question">Click Start to play!</div>
+
+<div class="answers" id="answers" style="display:none;">
+  <button onclick="submitAnswer('yes')">Yes</button>
+  <button onclick="submitAnswer('no')">No</button>
+  <button onclick="submitAnswer('dont_know')">Don't Know</button>
+  <button onclick="submitAnswer('probably')">Probably</button>
+  <button onclick="submitAnswer('probably_not')">Probably Not</button>
+</div>
+
+<div class="progress" id="progress"></div>
+
+<button id="startBtn" onclick="startGame()">Start Game</button>
+
+<div class="result" id="result"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
