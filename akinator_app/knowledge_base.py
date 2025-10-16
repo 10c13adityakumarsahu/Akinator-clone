@@ -1,131 +1,110 @@
 import math
+import random
 from .models import Character, Question
 
-# five answer keys we use everywhere
 ALL_ANSWERS = ["yes", "no", "dont_know", "probably", "probably_not"]
 
-def load_kb():
-    """
-    Load knowledge base as dict: { char_name: features_dict }
-    where features_dict maps question_text -> one of the 5 answers.
-    """
-    kb = {}
-    for c in Character.objects.all():
-        # ensure we have a plain dict for features
-        kb[c.name] = dict(c.features or {})
-    return kb
+def calculate_entropy(probabilities):
+    """Calculates the Shannon entropy for a list of probabilities."""
+    return -sum(p * math.log2(p) for p in probabilities if p > 0)
 
-def entropy_distribution(probs):
-    """Shannon entropy for a discrete distribution probs (list of p_i)."""
-    ent = 0.0
-    for p in probs:
-        if p > 0:
-            ent -= p * math.log2(p)
-    return ent
+def calculate_answer_distribution(question, candidate_characters):
+    """
+    Calculates the distribution of answers for a single question based on a list
+    of candidate characters already in memory.
+    """
+    answer_counts = {answer: 0 for answer in ALL_ANSWERS}
+    total_candidates = len(candidate_characters)
 
-def question_answer_distribution(question_text, remaining_chars):
-    """
-    For a given question_text and remaining_chars (list of (name, features)),
-    return distribution over ALL_ANSWERS in the same order.
-    """
-    counts = {a: 0 for a in ALL_ANSWERS}
-    total = 0
-    for name, feats in remaining_chars:
-        val = feats.get(question_text, None)
-        if val in ALL_ANSWERS:
-            counts[val] += 1
+    if total_candidates == 0:
+        return [0.0] * len(ALL_ANSWERS)
+
+    # Count answers in memory
+    for char in candidate_characters:
+        features = char.features or {}
+        answer = features.get(str(question.id))
+        if answer in answer_counts:
+            answer_counts[answer] += 1
         else:
-            # treat missing info as 'dont_know'
-            counts["dont_know"] += 1
-        total += 1
-    if total == 0:
-        return [0 for _ in ALL_ANSWERS]
-    return [counts[a] / total for a in ALL_ANSWERS]
+            answer_counts["dont_know"] += 1
 
-def best_question(answers_so_far):
+    # Return the probability distribution
+    return [count / total_candidates for count in answer_counts.values()]
+
+def best_question(candidate_ids, asked_question_ids, answers_so_far):
     """
-    Choose the question (Question object) that maximizes entropy
-    over the distribution of answers among the remaining candidate characters.
+    Finds the best question to ask next by maximizing information gain (entropy)
+    while respecting logical dependencies between questions.
 
-    answers_so_far: dict mapping question_text -> answer (one of ALL_ANSWERS)
+    Args:
+        candidate_ids (list): IDs of characters that are still possible candidates.
+        asked_question_ids (list): IDs of questions that have already been asked.
+        answers_so_far (dict): A dictionary of {question_id: answer} for the current session.
+    
+    Returns:
+        Question: The best Question object to ask next, or None.
     """
-    knowledge_base = load_kb()
+    if not candidate_ids:
+        return None
 
-    # 1) Compute remaining candidate characters given answers_so_far
-    remaining = []
-    for name, feats in knowledge_base.items():
-        ok = True
-        for q_text, user_ans in answers_so_far.items():
-            # if char has the question and it conflicts strongly with user's answer,
-            # we treat it as mismatch. For simplicity, require exact match here.
-            if q_text in feats:
-                if feats[q_text] != user_ans:
-                    ok = False
+    # --- Step 1: Efficiently fetch all candidate data in one query ---
+    candidate_chars = list(Character.objects.filter(id__in=candidate_ids))
+    
+    # --- Step 2: Determine the pool of potential questions ---
+    
+    # Start with all questions that haven't been asked yet.
+    potential_questions = Question.objects.exclude(id__in=asked_question_ids)
+
+    # --- Step 3: (OPTIONAL, BUT RECOMMENDED) Filter questions based on logical rules ---
+    # This is the "smart" part that prevents asking illogical questions.
+    # It requires prerequisite_questions and contradictory_questions fields on the Question model.
+    
+    logically_valid_qs = []
+    if hasattr(Question, 'prerequisite_questions'): # Check if the model has been updated
+        for question in potential_questions:
+            is_valid = True
+            
+            # Rule 1: Check if all prerequisites are met.
+            # Only ask "founded a car company?" if the answer to "is real?" was "yes".
+            for prereq in question.prerequisite_questions.all():
+                if answers_so_far.get(str(prereq.id)) != 'yes':
+                    is_valid = False
                     break
-            # if char doesn't have that question, we don't immediately discard it
-        if ok:
-            remaining.append((name, feats))
+            if not is_valid:
+                continue
 
-    # If no candidates remain, return None (nothing to ask)
-    if not remaining:
-        return None
-
-    # 2) Build a set of candidate questions to evaluate:
-    #    union of all feature keys among remaining chars + all Questions in DB (fallback)
-    feature_questions = set()
-    for _, feats in remaining:
-        feature_questions.update(feats.keys())
-
-    # Convert to Question objects: prefer DB Question by exact text, else create a pseudo wrapper
-    # We'll check DB for matching text
-    possible_questions = []
-    for q_text in feature_questions:
-        q_obj = Question.objects.filter(text=q_text).first()
-        if q_obj:
-            possible_questions.append(q_obj)
-        else:
-            # If there's no DB question with that text, we create a lightweight object-like dict
-            # with a .text attribute so calling code can use it similarly.
-            class PseudoQ:
-                def __init__(self, text): self.text = text
-            possible_questions.append(PseudoQ(q_text))
-
-    # Also include any Questions from DB that might not be in feature_questions
-    # (This ensures the system can ask questions even if one character lacks that feature)
-    for q in Question.objects.all():
-        if q.text not in feature_questions:
-            possible_questions.append(q)
-
-    # 3) Exclude already-asked questions
-    asked_texts = set(answers_so_far.keys())
-    candidate_qs = [q for q in possible_questions if q.text not in asked_texts]
-
-    if not candidate_qs:
-        return None
-
-    # 4) Evaluate entropy for each candidate question and pick highest
-    best_q = None
-    best_entropy = -1.0
-    for q in candidate_qs:
-        dist = question_answer_distribution(q.text, remaining)
-        ent = entropy_distribution(dist)
-        # We can also weight by how many chars would be affected (optional).
-        if ent > best_entropy:
-            best_entropy = ent
-            best_q = q
-
-    # best_q may be a PseudoQ or a real Question. If it's pseudo, try to find/create DB Question
-    if best_q is None:
-        return None
-
-    if isinstance(best_q, Question):
-        return best_q
+            # Rule 2: Check for direct contradictions.
+            # Don't ask about real-world things if we know the character is fictional.
+            for contra in question.contradictory_questions.all():
+                if answers_so_far.get(str(contra.id)) == 'yes':
+                    is_valid = False
+                    break
+            
+            if is_valid:
+                logically_valid_qs.append(question)
     else:
-        # try to find DB Question; if none, create a new Question entry
-        qdb = Question.objects.filter(text=best_q.text).first()
-        if qdb:
-            return qdb
-        else:
-            # create a lightweight DB question (so future runs will use it)
-            qdb = Question.objects.create(text=best_q.text)
-            return qdb
+        # If the model hasn't been updated, just use all potential questions.
+        logically_valid_qs = list(potential_questions)
+
+    if not logically_valid_qs:
+        return None
+
+    # --- Step 4: Calculate entropy for each valid question ---
+    best_q = None
+    max_entropy = -1
+
+    for question in logically_valid_qs:
+        probabilities = calculate_answer_distribution(question, candidate_chars)
+        current_entropy = calculate_entropy(probabilities)
+
+        if current_entropy > max_entropy:
+            max_entropy = current_entropy
+            best_q = question
+
+    # --- Step 5: (Fallback) If no question provides info, pick a random one ---
+    # This happens if all remaining characters have "dont_know" for all remaining questions.
+    if best_q is None and logically_valid_qs:
+        return random.choice(logically_valid_qs)
+
+    return best_q
+

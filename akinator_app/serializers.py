@@ -9,7 +9,7 @@ class QuestionSerializer(serializers.ModelSerializer):
 class CharacterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Character
-        fields = ['id', 'name', 'image_url', 'description', 'features']
+        fields = ['id', 'name', 'description', 'features']
 
 class GameSessionSerializer(serializers.ModelSerializer):
     class Meta:

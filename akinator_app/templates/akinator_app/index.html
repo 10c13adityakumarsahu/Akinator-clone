@@ -59,6 +59,15 @@
             font-weight: 600;
             transition: transform 0.2s, background-color 0.2s;
         }
+        
+        #correction-container input {
+            width: calc(100% - 30px);
+            padding: 15px;
+            border-radius: 10px;
+            border: none;
+            font-size: 1em;
+            margin-bottom: 10px;
+        }
 
         .answer-btn:hover, .btn:hover {
             transform: scale(1.05);
@@ -111,6 +120,27 @@
                 <h2>I think your character is...</h2>
                 <p id="result-name"></p>
                 <p id="result-desc"></p>
+            </div>
+            
+            <!-- NEW: Container for user feedback on the guess -->
+            <div id="feedback-container" class="hidden">
+                <p class="question">Am I correct?</p>
+                <div id="feedback-buttons" class="answers">
+                    <button id="yes-btn" class="btn">Yes</button>
+                    <button id="no-btn" class="btn">No</button>
+                </div>
+            </div>
+
+            <!-- NEW: Container to get correct character name if guess was wrong -->
+            <div id="correction-container" class="hidden">
+                <p class="question">Who were you thinking of?</p>
+                <input type="text" id="correction-input" placeholder="Enter character's name">
+                <button id="submit-correction-btn" class="btn">Submit</button>
+            </div>
+
+            <!-- NEW: Container for the final message and restart button -->
+            <div id="end-game-container" class="hidden">
+                <p id="end-game-message" class="question"></p>
                 <button id="restart-btn" class="btn">Play Again</button>
             </div>
         </div>
@@ -125,28 +155,32 @@
         const resultContainer = document.getElementById("result-container");
         const resultName = document.getElementById("result-name");
         const resultDesc = document.getElementById("result-desc");
+        
+        // New UI Elements for the learning loop
+        const feedbackContainer = document.getElementById("feedback-container");
+        const feedbackButtons = document.getElementById("feedback-buttons");
+        const yesBtn = document.getElementById("yes-btn");
+        const noBtn = document.getElementById("no-btn");
+        const correctionContainer = document.getElementById("correction-container");
+        const correctionInput = document.getElementById("correction-input");
+        const submitCorrectionBtn = document.getElementById("submit-correction-btn");
+        const endGameContainer = document.getElementById("end-game-container");
+        const endGameMessage = document.getElementById("end-game-message");
         const restartBtn = document.getElementById("restart-btn");
 
-        // Base URL for your Django development server
-        // Ensure your Django server is running on this address.
+        // --- GLOBAL STATE ---
         const API_BASE_URL = 'http://127.0.0.1:8000';
-
-        // This will hold the session ID from the backend
         let session_id = null;
+        let currentQuestion = null;
+        let guessedCharacter = null;
 
         // --- CSRF TOKEN HELPER ---
-        /**
-         * Gets a cookie by name, necessary for Django's CSRF token.
-         * @param {string} name - The name of the cookie to retrieve ('csrftoken').
-         * @returns {string|null} The cookie value or null if not found.
-         */
         function getCookie(name) {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
                 const cookies = document.cookie.split(';');
                 for (let i = 0; i < cookies.length; i++) {
                     const cookie = cookies[i].trim();
-                    // Does this cookie string begin with the name we want?
                     if (cookie.substring(0, name.length + 1) === (name + '=')) {
                         cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
                         break;
@@ -156,10 +190,9 @@
             return cookieValue;
         }
 
-
         // --- EVENT LISTENERS ---
         startBtn.addEventListener("click", startGame);
-        restartBtn.addEventListener("click", () => location.reload()); // Reloads the page to start fresh
+        restartBtn.addEventListener("click", () => location.reload());
 
         answerBtns.forEach(btn => {
             btn.addEventListener("click", () => {
@@ -168,20 +201,22 @@
             });
         });
 
-        // --- BACKEND COMMUNICATION FUNCTIONS ---
+        // Event listeners for the new learning loop buttons
+        yesBtn.addEventListener("click", () => handleFeedback(true));
+        noBtn.addEventListener("click", handleNoFeedback);
+        submitCorrectionBtn.addEventListener("click", () => handleFeedback(false));
 
-        /**
-         * Starts the game by fetching the first question from the Django backend.
-         */
+
+        // --- MAIN GAME LOGIC ---
+
         function startGame() {
-            // Fetch from the /start_game/ URL
             fetch(`${API_BASE_URL}/api/start_game/`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
                 })
                 .then(data => {
-                    session_id = data.session_id; // Store the session ID
+                    session_id = data.session_id;
                     showQuestion(data.question);
                     startBtn.classList.add("hidden");
                     questionContainer.classList.remove("hidden");
@@ -192,43 +227,35 @@
                 });
         }
 
-        /**
-         * Sends the user's answer to the backend and gets the next question or result.
-         * @param {string} answer - The answer string from the button (e.g., "yes", "no").
-         */
         function sendAnswer(answer) {
             const csrftoken = getCookie('csrftoken');
-
-            // Post the answer to the /answer/ URL
             fetch(`${API_BASE_URL}/api/answer/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "X-CSRFToken": csrftoken // Include the CSRF token in the header
+                    "X-CSRFToken": csrftoken
                 },
-                body: JSON.stringify({ session_id, answer })
+                body: JSON.stringify({
+                    session_id,
+                    answer,
+                    question_id: currentQuestion.id // Pass the current question's ID
+                })
             })
             .then(res => {
                 if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                 return res.json();
             })
             .then(data => {
-                // If the backend sends another question, show it
                 if (data.next_question) {
                     showQuestion(data.next_question);
                 } else {
-                    // Otherwise, the game is over, so fetch the result
                     fetchResult();
                 }
             })
             .catch(error => console.error("Error sending answer:", error));
         }
 
-        /**
-         * Fetches the final guessed character from the backend.
-         */
         function fetchResult() {
-            // Get the result from the /get_result/ URL
             fetch(`${API_BASE_URL}/api/get_result/?session_id=${session_id}`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
@@ -239,30 +266,85 @@
                 })
                 .catch(error => console.error("Error fetching result:", error));
         }
+        
+        // --- LEARNING LOOP FUNCTIONS ---
+
+        function handleNoFeedback() {
+            // The user clicked "No", so hide the Yes/No buttons and show the correction input.
+            feedbackButtons.classList.add("hidden");
+            correctionContainer.classList.remove("hidden");
+        }
+
+        function handleFeedback(wasCorrect) {
+            const csrftoken = getCookie('csrftoken');
+            const payload = {
+                session_id,
+                was_correct: wasCorrect,
+                guessed_character_id: guessedCharacter ? guessedCharacter.id : null,
+            };
+
+            if (!wasCorrect) {
+                const correctName = correctionInput.value.trim();
+                if (!correctName) {
+                    alert("Please enter the name of the character.");
+                    return;
+                }
+                payload.correct_character_name = correctName;
+            }
+
+            // Hide all game containers before showing the final message
+            resultContainer.classList.add("hidden");
+            feedbackContainer.classList.add("hidden");
+            correctionContainer.classList.add("hidden");
+
+            fetch(`${API_BASE_URL}/api/learn/`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": csrftoken
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                // Show the final message from the server and the restart button.
+                endGameMessage.textContent = data.message || "Thank you for playing!";
+                endGameContainer.classList.remove("hidden");
+            })
+            .catch(error => {
+                console.error("Error sending feedback:", error);
+                endGameMessage.textContent = "Something went wrong, but thanks for playing!";
+                endGameContainer.classList.remove("hidden");
+            });
+        }
+
 
         // --- UI UPDATE FUNCTIONS ---
 
-        /**
-         * Displays a question from the backend.
-         * @param {object} q - A question object, expected to have a 'text' property.
-         */
         function showQuestion(q) {
             if (q && q.text) {
                 questionText.textContent = q.text;
+                currentQuestion = q; // Store the full question object to access its ID later
             }
         }
 
-        /**
-         * Hides the question UI and shows the final guessed character.
-         * @param {object} character - The character object to display.
-         */
         function showResult(character) {
             questionContainer.classList.add("hidden");
             resultContainer.classList.remove("hidden");
-            resultName.textContent = character.name;
-            resultDesc.textContent = character.description;
+            
+            if (character) {
+                guessedCharacter = character; // Store the guessed character for the learning loop
+                resultName.textContent = character.name;
+                resultDesc.textContent = character.description;
+                feedbackContainer.classList.remove("hidden"); // Show the "Am I correct?" prompt
+            } else {
+                resultName.textContent = "I'm stumped!";
+                resultDesc.textContent = "You've beaten me! Let's try to learn who you were thinking of.";
+                // If no character is guessed, we can't be "correct", so go directly to the correction flow
+                feedbackContainer.classList.remove("hidden");
+                handleNoFeedback();
+            }
         }
-
     </script>
 </body>
 </html>

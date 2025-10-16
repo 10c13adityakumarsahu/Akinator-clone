@@ -6,5 +6,5 @@ urlpatterns = [
     path('answer/', views.answer_question),
     path('get_result/', views.get_result),
     path("add_character/", views.add_character),
-    path('get-character-info/', views.get_character_info_api, name='get_character_info'),
+    path("learn/", views.learn_from_feedback),
 ]
