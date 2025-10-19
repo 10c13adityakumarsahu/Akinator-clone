@@ -1,20 +1,9 @@
-Core Django Framework
-
 django
 djangorestframework
-
-Production Web Server & Static Files
-
 gunicorn
 whitenoise
-
-Database Connection
-
 dj-database-url
 psycopg2-binary
-
-Web Scraping & API Requests
-
 requests
 beautifulsoup4
 SPARQLWrapper
