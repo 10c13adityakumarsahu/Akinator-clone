@@ -210,7 +210,7 @@
         // --- MAIN GAME LOGIC ---
 
         function startGame() {
-            fetch(`${API_BASE_URL}/api/start_game/`)
+            fetch(`${API_BASE_URL}/start_game/`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
