@@ -7,5 +7,4 @@ urlpatterns = [
     path('get_result/', views.get_result),
     path("add_character/", views.add_character),
     path("learn/", views.learn_from_feedback),
-    path("",views.index_view),
 ]

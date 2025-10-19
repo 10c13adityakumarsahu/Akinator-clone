@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Akinator Clone</title>
-    <!-- I've included all styles directly in the HTML for simplicity -->
+    <!-- Styles are embedded for simplicity in a single file -->
     <style>
         body {
             background: linear-gradient(to bottom, #6a11cb, #2575fc);
@@ -122,7 +122,7 @@
                 <p id="result-desc"></p>
             </div>
             
-            <!-- NEW: Container for user feedback on the guess -->
+            <!-- Container for user feedback on the guess -->
             <div id="feedback-container" class="hidden">
                 <p class="question">Am I correct?</p>
                 <div id="feedback-buttons" class="answers">
@@ -131,14 +131,14 @@
                 </div>
             </div>
 
-            <!-- NEW: Container to get correct character name if guess was wrong -->
+            <!-- Container to get correct character name if guess was wrong -->
             <div id="correction-container" class="hidden">
                 <p class="question">Who were you thinking of?</p>
                 <input type="text" id="correction-input" placeholder="Enter character's name">
                 <button id="submit-correction-btn" class="btn">Submit</button>
             </div>
 
-            <!-- NEW: Container for the final message and restart button -->
+            <!-- Container for the final message and restart button -->
             <div id="end-game-container" class="hidden">
                 <p id="end-game-message" class="question"></p>
                 <button id="restart-btn" class="btn">Play Again</button>
@@ -155,8 +155,6 @@
         const resultContainer = document.getElementById("result-container");
         const resultName = document.getElementById("result-name");
         const resultDesc = document.getElementById("result-desc");
-        
-        // New UI Elements for the learning loop
         const feedbackContainer = document.getElementById("feedback-container");
         const feedbackButtons = document.getElementById("feedback-buttons");
         const yesBtn = document.getElementById("yes-btn");
@@ -169,7 +167,8 @@
         const restartBtn = document.getElementById("restart-btn");
 
         // --- GLOBAL STATE ---
-        const API_BASE_URL = "https://akinator-clone-hee0.onrender.com";
+        // This relative prefix ensures all API calls work correctly with your Django URL setup.
+        const API_PREFIX = '/api'; 
         let session_id = null;
         let currentQuestion = null;
         let guessedCharacter = null;
@@ -200,8 +199,7 @@
                 sendAnswer(answer);
             });
         });
-
-        // Event listeners for the new learning loop buttons
+        
         yesBtn.addEventListener("click", () => handleFeedback(true));
         noBtn.addEventListener("click", handleNoFeedback);
         submitCorrectionBtn.addEventListener("click", () => handleFeedback(false));
@@ -210,7 +208,7 @@
         // --- MAIN GAME LOGIC ---
 
         function startGame() {
-            fetch(`${API_BASE_URL}/start_game/`)
+            fetch(`${API_PREFIX}/start_game/`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
@@ -223,13 +221,13 @@
                 })
                 .catch(error => {
                     console.error("Error starting game:", error);
-                    alert("Could not connect to the game server. Make sure the Django server is running and accessible at " + API_BASE_URL);
+                    alert("Could not start the game. Please check the console for errors.");
                 });
         }
 
         function sendAnswer(answer) {
             const csrftoken = getCookie('csrftoken');
-            fetch(`${API_BASE_URL}/answer/`, {
+            fetch(`${API_PREFIX}/answer/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -238,7 +236,7 @@
                 body: JSON.stringify({
                     session_id,
                     answer,
-                    question_id: currentQuestion.id // Pass the current question's ID
+                    question_id: currentQuestion.id
                 })
             })
             .then(res => {
@@ -256,7 +254,7 @@
         }
 
         function fetchResult() {
-            fetch(`${API_BASE_URL}/get_result/?session_id=${session_id}`)
+            fetch(`${API_PREFIX}/get_result/?session_id=${session_id}`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
@@ -270,7 +268,6 @@
         // --- LEARNING LOOP FUNCTIONS ---
 
         function handleNoFeedback() {
-            // The user clicked "No", so hide the Yes/No buttons and show the correction input.
             feedbackButtons.classList.add("hidden");
             correctionContainer.classList.remove("hidden");
         }
@@ -292,12 +289,11 @@
                 payload.correct_character_name = correctName;
             }
 
-            // Hide all game containers before showing the final message
             resultContainer.classList.add("hidden");
             feedbackContainer.classList.add("hidden");
             correctionContainer.classList.add("hidden");
 
-            fetch(`${API_BASE_URL}/learn/`, {
+            fetch(`${API_PREFIX}/learn/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -307,7 +303,6 @@
             })
             .then(res => res.json())
             .then(data => {
-                // Show the final message from the server and the restart button.
                 endGameMessage.textContent = data.message || "Thank you for playing!";
                 endGameContainer.classList.remove("hidden");
             })
@@ -324,7 +319,7 @@
         function showQuestion(q) {
             if (q && q.text) {
                 questionText.textContent = q.text;
-                currentQuestion = q; // Store the full question object to access its ID later
+                currentQuestion = q;
             }
         }
 
@@ -333,14 +328,13 @@
             resultContainer.classList.remove("hidden");
             
             if (character) {
-                guessedCharacter = character; // Store the guessed character for the learning loop
+                guessedCharacter = character;
                 resultName.textContent = character.name;
                 resultDesc.textContent = character.description;
-                feedbackContainer.classList.remove("hidden"); // Show the "Am I correct?" prompt
+                feedbackContainer.classList.remove("hidden");
             } else {
                 resultName.textContent = "I'm stumped!";
                 resultDesc.textContent = "You've beaten me! Let's try to learn who you were thinking of.";
-                // If no character is guessed, we can't be "correct", so go directly to the correction flow
                 feedbackContainer.classList.remove("hidden");
                 handleNoFeedback();
             }
