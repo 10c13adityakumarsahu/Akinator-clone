@@ -6,6 +6,7 @@ from .serializers import QuestionSerializer, CharacterSerializer
 from .knowledge_base import best_question
 from .ai_data_collector import get_character_info
 from django.db.models import Q # Import Q objects for complex queries
+from django.shortcuts import render
 
 # NOTE: For full production readiness, this hardcoded map should be replaced
 # by the database-driven approach we discussed, where these mappings are
@@ -51,7 +52,12 @@ def add_character(request):
         return Response(CharacterSerializer(char).data, status=status.HTTP_201_CREATED)
     except Exception as e:
         return Response({"error": f"Failed to add character: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+@api_view(['GET'])
+def index_view(request):
+    """
+    Serves the main index.html file which contains the game's frontend.
+    """
+    return render(request, 'akinator_app/index.html')
 
 @api_view(['GET'])
 def start_game(request):
