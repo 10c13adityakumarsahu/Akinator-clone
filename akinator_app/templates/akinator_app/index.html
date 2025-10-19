@@ -169,7 +169,7 @@
         const restartBtn = document.getElementById("restart-btn");
 
         // --- GLOBAL STATE ---
-        const API_BASE_URL = 'http://127.0.0.1:8000';
+        const API_BASE_URL = '{{ request.scheme }}://{{ request.get_host }}';
         let session_id = null;
         let currentQuestion = null;
         let guessedCharacter = null;

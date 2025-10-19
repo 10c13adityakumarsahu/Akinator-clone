@@ -7,17 +7,16 @@ from .knowledge_base import best_question
 from .ai_data_collector import get_character_info
 from django.db.models import Q # Import Q objects for complex queries
 
-# This map helps the ai_data_collector populate initial features.
-# You MUST update the integer IDs to match the IDs of these questions in your database.
-# Example: If "Is your character male?" has an ID of 5, you'd put 5 here.
+# NOTE: For full production readiness, this hardcoded map should be replaced
+# by the database-driven approach we discussed, where these mappings are
+# stored on the Question model itself.
 WIKIDATA_TO_QUESTION_MAP = {
     "gender": {
         "male": {"question_id": -1, "answer": "yes"}, # TODO: Replace -1 with the correct Question ID
-        "female": {"question_id": -1, "answer": "no"}   # Assuming the question is "Is your character male?"
+        "female": {"question_id": -1, "answer": "no"}  # Assuming the question is "Is your character male?"
     },
-    # TODO: Add mappings for occupations, etc.
     # "occupation": {
-    #     "singer": {"question_id": -1, "answer": "yes"} # For a question like "Is your character a singer?"
+    #     "singer": {"question_id": -1, "answer": "yes"}
     # }
 }
 
@@ -34,8 +33,6 @@ def add_character(request):
     try:
         data = get_character_info(name)
         initial_features = {}
-
-        # Use the WIKIDATA_TO_QUESTION_MAP to pre-populate features
         details = data.get("details")
         if details:
             for key, value_map in WIKIDATA_TO_QUESTION_MAP.items():
@@ -62,11 +59,9 @@ def start_game(request):
     if not all_character_ids:
         return Response({"error": "No characters in the database to start a game."}, status=status.HTTP_404_NOT_FOUND)
 
-    # Corrected call to best_question with all three required arguments
     first_question = best_question(all_character_ids, [], {})
     
     if not first_question:
-        # Fallback: if entropy calculation fails, just pick a random question
         first_question = Question.objects.order_by('?').first()
         if not first_question:
             return Response({"error": "No questions in the database."}, status=status.HTTP_404_NOT_FOUND)
@@ -96,42 +91,49 @@ def answer_question(request):
     current_candidates_ids = session.possible_character_ids
     question_id_str = str(question_id)
     
-    # --- DATABASE-AGNOSTIC FILTERING IN PYTHON ---
+    # --- OPTIMIZED: EFFICIENT DATABASE-SIDE FILTERING ---
+    # This block replaces the slow Python loop with a fast database query.
     if current_candidates_ids:
         candidate_chars = Character.objects.filter(id__in=current_candidates_ids)
-        filtered_ids = []
-        for char in candidate_chars:
-            features = char.features or {}
-            char_answer = features.get(question_id_str)
-            
-            keep_char = True
-            if char_answer: # Only filter if the character has a defined feature for this question
-                if answer == "yes" and char_answer in ["no", "probably_not"]:
-                    keep_char = False
-                elif answer == "no" and char_answer in ["yes", "probably"]:
-                    keep_char = False
-                elif answer == "probably" and char_answer == "no":
-                    keep_char = False
-                elif answer == "probably_not" and char_answer == "yes":
-                    keep_char = False
-            
-            if keep_char:
-                filtered_ids.append(char.id)
         
-        session.possible_character_ids = filtered_ids
+        # This map defines which character answers to exclude based on the user's answer.
+        exclusion_map = {
+            "yes": ["no", "probably_not"],
+            "no": ["yes", "probably"],
+            "probably": ["no"],
+            "probably_not": ["yes"]
+        }
+        
+        # We build a query only if the user's answer provides clear information.
+        # "dont_know" does not filter anyone.
+        if answer in exclusion_map:
+            # Create a list of Q objects to represent OR conditions for the exclusion.
+            # e.g., for a "yes" answer, we want to exclude characters where the feature is 'no' OR 'probably_not'.
+            exclude_conditions = [Q(features__contains={question_id_str: val}) for val in exclusion_map[answer]]
+            
+            # Combine the Q objects with an OR operator.
+            final_query = Q()
+            for condition in exclude_conditions:
+                final_query |= condition
+            
+            # Execute a single, efficient database query to exclude the mismatches.
+            candidate_chars = candidate_chars.exclude(final_query)
+        
+        # Get the remaining valid character IDs from the optimized database query.
+        session.possible_character_ids = list(candidate_chars.values_list('id', flat=True))
     
-    # --- CORRECTED LOGIC FOR NEXT QUESTION ---
-    # 1. Save the current answer first.
+    # --- END OF OPTIMIZED BLOCK ---
+    
+    # Save the current answer to the session.
     session.answers[question_id_str] = answer
     
-    # 2. Get the updated state of the game.
     answers_so_far = session.answers
     asked_question_ids = list(answers_so_far.keys())
     
-    # 3. Call best_question ONLY ONCE with the correct, updated information.
+    # Find the next best question based on the new, smaller pool of candidates.
     next_q = best_question(session.possible_character_ids, asked_question_ids, answers_so_far)
 
-    # End the game if we have no more questions or have narrowed it down.
+    # End the game if we have no more good questions or are confident in the result.
     if not next_q or (len(session.possible_character_ids) < 2 and len(asked_question_ids) > 5):
         session.is_completed = True
         session.current_question = None
@@ -164,10 +166,8 @@ def get_result(request):
             "match_score": 100
         })
 
-    # --- More Robust Scoring Logic ---
     best_match = None
-    best_score = -1000  # Start low to ensure any character gets picked
-
+    best_score = -1000 
     for char in Character.objects.filter(id__in=candidate_ids):
         score = 0
         features = char.features or {}
@@ -175,11 +175,11 @@ def get_result(request):
             char_answer = features.get(q_id_str)
             if char_answer:
                 if user_answer == char_answer:
-                    score += 2  # Strong agreement
+                    score += 2
                 elif user_answer in ["yes", "no"] and user_answer != char_answer:
-                    score -= 2  # Strong disagreement
+                    score -= 2
                 elif user_answer == 'dont_know':
-                    score -= 1  # User is unsure about a known feature
+                    score -= 1
         if score > best_score:
             best_score = score
             best_match = char
@@ -188,6 +188,7 @@ def get_result(request):
         "guessed_character": CharacterSerializer(best_match).data if best_match else None,
         "match_score": best_score
     })
+
 
 @api_view(['POST'])
 def learn_from_feedback(request):
@@ -204,6 +205,7 @@ def learn_from_feedback(request):
     if was_correct:
         try:
             character = Character.objects.get(id=guessed_character_id)
+            # Use the | operator to merge the session's answers into the character's features.
             character.features = (character.features or {}) | answers
             character.save()
             return Response({"message": f"Thanks for confirming! I've learned more about {character.name}."})
@@ -227,4 +229,3 @@ def learn_from_feedback(request):
             message += " They are new to my knowledge base."
             
         return Response({"message": message})
-
