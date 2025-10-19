@@ -229,7 +229,7 @@
 
         function sendAnswer(answer) {
             const csrftoken = getCookie('csrftoken');
-            fetch(`${API_BASE_URL}/api/answer/`, {
+            fetch(`${API_BASE_URL}/answer/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -256,7 +256,7 @@
         }
 
         function fetchResult() {
-            fetch(`${API_BASE_URL}/api/get_result/?session_id=${session_id}`)
+            fetch(`${API_BASE_URL}/get_result/?session_id=${session_id}`)
                 .then(res => {
                     if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
                     return res.json();
@@ -297,7 +297,7 @@
             feedbackContainer.classList.add("hidden");
             correctionContainer.classList.add("hidden");
 
-            fetch(`${API_BASE_URL}/api/learn/`, {
+            fetch(`${API_BASE_URL}/learn/`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
