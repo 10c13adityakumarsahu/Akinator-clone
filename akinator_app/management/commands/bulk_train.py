@@ -48,7 +48,7 @@ class Command(BaseCommand):
             try:
                 scraped_data = get_character_info(name)
             except Exception as e:
-                self.stdout.write(self.style.ERROR(f"  > Could not scrape data for '{name}': {e}"))
+                self.stdout.write(self.style.ERROR(f"   > Could not scrape data for '{name}': {e}"))
                 continue
 
             # Populate the initial features based on the scraped data
@@ -59,9 +59,17 @@ class Command(BaseCommand):
                     detail_value = details.get(key)
                     if detail_value and detail_value.lower() in value_map:
                         mapping = value_map[detail_value.lower()]
-                        # Ensure the question ID has been configured in the map
-                        if mapping["question_id"] != -1:
-                            initial_features[str(mapping["question_id"])] = mapping["answer"]
+                        
+                        # --- MODIFIED: Get question text from ID ---
+                        q_id = mapping["question_id"]
+                        if q_id != -1:
+                            try:
+                                # We fetch the question text to use it as the key
+                                question = Question.objects.get(id=q_id)
+                                initial_features[question.text] = mapping["answer"]
+                            except Question.DoesNotExist:
+                                self.stdout.write(self.style.ERROR(f"  > Error: Question ID {q_id} in WIKIDATA_TO_QUESTION_MAP not found in database. Skipping."))
+                        # --- END MODIFIED ---
             
             # Update character details
             character.description = scraped_data.get("summary", character.description or "")
@@ -70,12 +78,11 @@ class Command(BaseCommand):
             
             if created:
                 characters_created += 1
-                self.stdout.write(self.style.SUCCESS(f"  > Created and trained new character: '{name}'"))
+                self.stdout.write(self.style.SUCCESS(f"   > Created and trained new character: '{name}'"))
             else:
                 characters_updated += 1
-                self.stdout.write(self.style.SUCCESS(f"  > Updated existing character: '{name}' with scraped data."))
+                self.stdout.write(self.style.SUCCESS(f"   > Updated existing character: '{name}' with scraped data."))
 
         self.stdout.write(self.style.SUCCESS("\n--- Bulk Training Complete! ---"))
         self.stdout.write(f"Characters Created: {characters_created}")
         self.stdout.write(f"Characters Updated: {characters_updated}")
-

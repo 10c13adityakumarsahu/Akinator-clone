@@ -27,8 +27,7 @@ SECRET_KEY = 'django-insecure-tucd)yb)0=ljyg_d4p4a0_zwmj)k$swjg#ub#8bh=pr3ho6ejx
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['akinator-clone-hee0.onrender.com']
-
+ALLOWED_HOSTS = ['akinator-clone-hee0.onrender.com','127.0.0.1']
 CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOWED_ORIGINS = [
@@ -88,11 +87,12 @@ DATABASE_URL = 'postgresql://akinator_clone_user:LpD8qqY2c2sRCSFHgQFOEP3O4StZXWv
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),
+        default=DATABASE_URL,
         conn_max_age=600,
         ssl_require=True
     )
 }
+
 
 
 # Password validation
